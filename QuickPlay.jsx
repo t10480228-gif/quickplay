@@ -44,13 +44,25 @@ function shuffle(arr) {
   return a;
 }
 
+/* ---------- playType meta ---------- */
+const PLAY_TYPES = [
+  { value: "run",   label: "ランプレー", icon: "🏃", color: "var(--c-green)" },
+  { value: "pass",  label: "パスプレー", icon: "🎯", color: "var(--c-blue)"  },
+  { value: "other", label: "その他",     icon: "📋", color: "var(--c-sub)"   },
+];
+const PLAY_TYPE_MAP = Object.fromEntries(PLAY_TYPES.map(t => [t.value, t]));
+
 /* ---------- quiz generator ---------- */
 // quizType: "img2name" | "name2img"
-function generateQuiz(plays, quizType) {
-  if (plays.length < 3) return null;
-  const shuffled = shuffle(plays);
+// playTypeFilter: "all" | "run" | "pass" | "other"
+function generateQuiz(plays, quizType, playTypeFilter = "all") {
+  const filtered = playTypeFilter === "all"
+    ? plays
+    : plays.filter(p => (p.playType || "other") === playTypeFilter);
+  if (filtered.length < 3) return null;
+  const shuffled = shuffle(filtered);
   return shuffled.map(correct => {
-    const wrongPool = plays.filter(p => p.id !== correct.id);
+    const wrongPool = filtered.filter(p => p.id !== correct.id);
     const wrongs = shuffle(wrongPool).slice(0, 2);
     const choices = shuffle([correct, ...wrongs]);
     return { correct, choices, quizType };
@@ -345,6 +357,47 @@ function GlobalStyle() {
       .qp-side-badge.offense { background: rgba(244,185,66,0.18); color: var(--c-offense); }
       .qp-side-badge.defense { background: rgba(78,181,255,0.18); color: var(--c-defense); }
 
+      /* playType badge */
+      .qp-pt-badge {
+        display: inline-flex; align-items: center; gap: 3px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+
+      /* playType filter tabs */
+      .qp-filter-tabs {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 12px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+      }
+      .qp-filter-tab {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 5px 12px;
+        border-radius: 999px;
+        border: 1.5px solid var(--c-border);
+        background: var(--c-surface);
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--c-sub);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all .15s;
+      }
+      .qp-filter-tab.active {
+        border-color: var(--c-gold);
+        color: var(--c-gold);
+        background: rgba(244,185,66,0.12);
+      }
+      .qp-filter-tab:not(.active):hover {
+        border-color: var(--c-border);
+        color: var(--c-ink);
+      }
+
       /* Quiz start card */
       .qp-quiz-start {
         background: var(--c-card);
@@ -577,9 +630,22 @@ function BackHeader({ title, onBack, actions }) {
 /* ============================================================
    Home
    ============================================================ */
+/* フィルタータブの定義 */
+const FILTER_TABS = [
+  { value: "all",  label: "すべて", icon: "🏈" },
+  ...PLAY_TYPES,
+];
+
 function Home({ data, go }) {
+  const [filter, setFilter] = useState("all");
   const teamCount = data.teams.length;
   const playCount = data.teams.reduce((s, t) => s + t.plays.length, 0);
+
+  /* チームごとにフィルター後の有効プレー数を計算 */
+  const filteredCount = (team) =>
+    filter === "all"
+      ? team.plays.length
+      : team.plays.filter(p => (p.playType || "other") === filter).length;
 
   return (
     <>
@@ -607,6 +673,21 @@ function Home({ data, go }) {
 
         <div className="qp-section-title"><Play size={13} /> クイズを始める</div>
 
+        {/* フィルタータブ */}
+        {data.teams.length > 0 && (
+          <div className="qp-filter-tabs">
+            {FILTER_TABS.map(tab => (
+              <button
+                key={tab.value}
+                className={"qp-filter-tab" + (filter === tab.value ? " active" : "")}
+                onClick={() => setFilter(tab.value)}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {data.teams.length === 0 ? (
           <div className="qp-empty">
             <div className="emoji">🏈</div>
@@ -614,8 +695,10 @@ function Home({ data, go }) {
             右上のアイコンからチーム管理へ
           </div>
         ) : (
-          data.teams.map(team => (
-            team.plays.length >= 3 ? (
+          data.teams.map(team => {
+            const fc = filteredCount(team);
+            const filterLabel = FILTER_TABS.find(t => t.value === filter)?.label || "";
+            return fc >= 3 ? (
               <div key={team.id} className="qp-quiz-start">
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                   <span className={`qp-side-badge ${team.side}`}>
@@ -623,13 +706,25 @@ function Home({ data, go }) {
                     {team.side === "offense" ? "OFFENSE" : "DEFENSE"}
                   </span>
                   <h3 style={{ margin: 0 }}>{team.name}</h3>
-                  <span style={{ fontSize: 12, color: "var(--c-sub)", marginLeft: "auto" }}>{team.plays.length} プレー</span>
+                  <span style={{ fontSize: 12, color: "var(--c-sub)", marginLeft: "auto" }}>{fc} プレー</span>
                 </div>
-                <button className="qp-quiz-btn" onClick={() => go("quiz", { teamId: team.id, quizType: "img2name" })}>
+                {filter !== "all" && (
+                  <div style={{ marginBottom: 10 }}>
+                    {(() => {
+                      const pt = PLAY_TYPE_MAP[filter];
+                      return (
+                        <span className="qp-pt-badge" style={{ background: `${pt.color}22`, color: pt.color }}>
+                          {pt.icon} {pt.label} のみ出題
+                        </span>
+                      );
+                    })()}
+                  </div>
+                )}
+                <button className="qp-quiz-btn" onClick={() => go("quiz", { teamId: team.id, quizType: "img2name", playTypeFilter: filter })}>
                   <span className="qb-icon"><BookOpen size={17} /></span>
                   絵を見てプレー名を答える
                 </button>
-                <button className="qp-quiz-btn" onClick={() => go("quiz", { teamId: team.id, quizType: "name2img" })}>
+                <button className="qp-quiz-btn" onClick={() => go("quiz", { teamId: team.id, quizType: "name2img", playTypeFilter: filter })}>
                   <span className="qb-icon"><ImagePlus size={17} /></span>
                   プレー名を見て絵を答える
                 </button>
@@ -638,11 +733,16 @@ function Home({ data, go }) {
               <div key={team.id} className="qp-card" style={{ opacity: 0.6 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                   <span className={`qp-side-badge ${team.side}`}>{team.name}</span>
-                  <span style={{ fontSize: 12, color: "var(--c-sub)" }}>{team.plays.length} / 3 プレー（クイズには3つ以上必要）</span>
+                  <span style={{ fontSize: 12, color: "var(--c-sub)" }}>
+                    {filter === "all"
+                      ? `${team.plays.length} / 3 プレー（クイズには3つ以上必要）`
+                      : `${filterLabel}: ${fc} / 3 プレー（このカテゴリは3つ以上必要）`
+                    }
+                  </span>
                 </div>
               </div>
-            )
-          ))
+            );
+          })
         )}
       </div>
     </>
@@ -779,7 +879,9 @@ function PlayManager({ team, onAddPlay, onDeletePlay, onEditPlay, onBack }) {
             まだプレーが登録されていません<br />右下の＋から追加しましょう
           </div>
         )}
-        {team.plays.map(play => (
+        {team.plays.map(play => {
+          const pt = PLAY_TYPE_MAP[play.playType || "other"];
+          return (
           <div key={play.id} className="qp-play-card">
             <div className="qp-play-thumb">
               {play.imageDataUrl
@@ -789,7 +891,12 @@ function PlayManager({ team, onAddPlay, onDeletePlay, onEditPlay, onBack }) {
             </div>
             <div className="qp-play-info">
               <div className="pn">{play.name}</div>
-              <div className="ps">{play.imageDataUrl ? "画像あり" : "画像なし"}</div>
+              <div className="ps" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+                <span className="qp-pt-badge" style={{ background: `${pt.color}22`, color: pt.color }}>
+                  {pt.icon} {pt.label}
+                </span>
+                <span style={{ fontSize: 11, color: "var(--c-sub)" }}>{play.imageDataUrl ? "画像あり" : "画像なし"}</span>
+              </div>
             </div>
             <div className="qp-play-actions">
               <button className="qp-icon-btn" onClick={() => onEditPlay(play.id)} title="編集">
@@ -800,7 +907,8 @@ function PlayManager({ team, onAddPlay, onDeletePlay, onEditPlay, onBack }) {
               </button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
       <button className="qp-fab" onClick={onAddPlay}>
         <Plus size={17} />プレー追加
@@ -813,8 +921,9 @@ function PlayManager({ team, onAddPlay, onDeletePlay, onEditPlay, onBack }) {
    Play Form
    ============================================================ */
 function PlayForm({ initial, onSave, onBack }) {
-  const [name, setName] = useState(initial?.name || "");
-  const [imgUrl, setImgUrl] = useState(initial?.imageDataUrl || null);
+  const [name,     setName]     = useState(initial?.name        || "");
+  const [playType, setPlayType] = useState(initial?.playType    || "run");
+  const [imgUrl,   setImgUrl]   = useState(initial?.imageDataUrl || null);
   const fileRef = useRef(null);
 
   const handleFile = (e) => {
@@ -838,6 +947,33 @@ function PlayForm({ initial, onSave, onBack }) {
             placeholder="例：36 POWER, Y-Cross 等"
             autoFocus
           />
+        </div>
+        <div className="qp-field">
+          <label>プレー種別</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            {PLAY_TYPES.map(pt => (
+              <div
+                key={pt.value}
+                onClick={() => setPlayType(pt.value)}
+                style={{
+                  flex: 1,
+                  background: playType === pt.value ? `${pt.color}22` : "var(--c-surface)",
+                  border: `2px solid ${playType === pt.value ? pt.color : "var(--c-border)"}`,
+                  borderRadius: 12,
+                  padding: "10px 6px",
+                  textAlign: "center",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: playType === pt.value ? pt.color : "var(--c-sub)",
+                  transition: "all .15s",
+                }}
+              >
+                <div style={{ fontSize: 18, marginBottom: 3 }}>{pt.icon}</div>
+                {pt.label}
+              </div>
+            ))}
+          </div>
         </div>
         <div className="qp-field">
           <label>アサイメント画像</label>
@@ -864,7 +1000,7 @@ function PlayForm({ initial, onSave, onBack }) {
         <button
           className="qp-btn-primary"
           disabled={!name.trim()}
-          onClick={() => onSave({ name: name.trim(), imageDataUrl: imgUrl })}
+          onClick={() => onSave({ name: name.trim(), playType, imageDataUrl: imgUrl })}
         >
           {initial ? "更新する" : "保存する"}
         </button>
@@ -876,8 +1012,8 @@ function PlayForm({ initial, onSave, onBack }) {
 /* ============================================================
    Quiz Screen
    ============================================================ */
-function QuizScreen({ team, quizType, onFinish, onBack }) {
-  const [questions] = useState(() => generateQuiz(team.plays, quizType));
+function QuizScreen({ team, quizType, playTypeFilter = "all", onFinish, onBack }) {
+  const [questions] = useState(() => generateQuiz(team.plays, quizType, playTypeFilter));
   const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState(null); // play id
   const [answers, setAnswers] = useState([]); // {correct: bool}[]
@@ -910,10 +1046,19 @@ function QuizScreen({ team, quizType, onFinish, onBack }) {
   };
 
   const typeLabel = quizType === "img2name" ? "絵を見てプレー名を答えよ" : "プレー名を見て絵を答えよ";
+  const filterMeta = playTypeFilter !== "all" ? PLAY_TYPE_MAP[playTypeFilter] : null;
 
   return (
     <>
-      <BackHeader title={team.name} onBack={onBack} />
+      <BackHeader
+        title={team.name}
+        onBack={onBack}
+        actions={filterMeta && (
+          <span className="qp-pt-badge" style={{ background: `${filterMeta.color}22`, color: filterMeta.color, marginLeft: "auto" }}>
+            {filterMeta.icon} {filterMeta.label}
+          </span>
+        )}
+      />
       {/* Progress dots */}
       <div className="qp-quiz-progress">
         {questions.map((_, i) => (
@@ -1098,9 +1243,9 @@ export default function App() {
       teams: prev.teams.map(t => {
         if (t.id !== ctx.teamId) return t;
         if (ctx.playId) {
-          return { ...t, plays: t.plays.map(p => p.id === ctx.playId ? { ...p, name, imageDataUrl } : p) };
+          return { ...t, plays: t.plays.map(p => p.id === ctx.playId ? { ...p, name, playType, imageDataUrl } : p) };
         } else {
-          return { ...t, plays: [...t.plays, { id: uid(), name, imageDataUrl, positions: [] }] };
+          return { ...t, plays: [...t.plays, { id: uid(), name, playType, imageDataUrl, positions: [] }] };
         }
       }),
     }));
@@ -1172,6 +1317,7 @@ export default function App() {
         <QuizScreen
           team={quizTeam}
           quizType={ctx.quizType}
+          playTypeFilter={ctx.playTypeFilter || "all"}
           onFinish={handleQuizFinish}
           onBack={() => go("home")}
         />
@@ -1180,7 +1326,7 @@ export default function App() {
         <ResultScreen
           answers={ctx.quizAnswers || []}
           total={ctx.quizTotal || 0}
-          onRetry={() => go("quiz", { teamId: ctx.teamId, quizType: ctx.quizType })}
+          onRetry={() => go("quiz", { teamId: ctx.teamId, quizType: ctx.quizType, playTypeFilter: ctx.playTypeFilter || "all" })}
           onHome={() => go("home")}
         />
       )}
