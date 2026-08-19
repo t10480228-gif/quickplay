@@ -1237,7 +1237,7 @@ export default function App() {
   const currentTeam = data.teams.find(t => t.id === ctx.teamId) || null;
 
   const handleAddPlay = () => go("playForm", { teamId: ctx.teamId });
-  const handleSavePlay = ({ name, imageDataUrl }) => {
+  const handleSavePlay = ({ name, playType, imageDataUrl }) => {
     setData(prev => ({
       ...prev,
       teams: prev.teams.map(t => {
